@@ -1,16 +1,30 @@
-# campus_trace
+# Campus-Trace
 
-A new Flutter project.
+**Campus-Trace** es un sistema académico en desarrollo que inicia como un **creador de plantillas/forms/bitácoras** digitales y evoluciona hacia un **ecosistema completo para universidades**.  
+Permitirá a estudiantes y docentes gestionar registros, observaciones, reflexiones, actividades y evaluaciones con **trazabilidad, estadísticas y colaboración** en tiempo real.
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 🚀 Características iniciales (MVP)
+- Creador de **bitácoras pedagógicas** (ejemplo base).
+- Campos estructurados de observación, análisis y reflexión.
+- Evaluación docente mediante rúbrica.
+- Exportación a **PDF**.
+- Organización por **semestres académicos (1–8)**.
+- Espacio para evidencias (texto, archivos, multimedia).
+- Multi-rol: **estudiante / docente**.
 
-A few resources to get you started if this is your first Flutter project:
+---
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## 🏗️ Tecnologías
+- **[Flutter](https://flutter.dev/)** → multiplataforma (Web, Android, iOS, Desktop).
+- **[Dart](https://dart.dev/)** → lenguaje principal.
+- **Firebase (próximamente)**:
+  - Firestore (almacenamiento de bitácoras).
+  - Authentication (roles y usuarios).
+  - Storage (archivos y evidencias).
+  - Hosting (web).
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+---
+
+## 📂 Estructura recomendada
