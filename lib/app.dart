@@ -6,6 +6,7 @@ import 'auth/guards/student_dashboard_guard.dart';
 import 'auth/guards/teacher_dashboard_guard.dart';
 import 'auth/screens/access_denied_page.dart';
 import 'auth/screens/login_screen.dart';
+import 'features/screens/admin_bitacora_screen.dart';
 import 'features/screens/form_builder_screen.dart';
 import 'features/screens/form_fill_screen.dart';
 import 'profile/screens/profile_screen.dart';
@@ -50,6 +51,9 @@ class AppRouter extends StatelessWidget {
                   break;
                 case '/admin_user':
                   page = const AdminUsersScreen();
+                  break;
+                case '/admin_bitacora':
+                  page = const AdminBitacoraScreen();
                   break;
                 case '/teacher_dashboard':
                   page = const TeacherDashboardGuard();

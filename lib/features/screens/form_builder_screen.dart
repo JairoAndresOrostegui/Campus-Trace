@@ -11,7 +11,19 @@ import 'form_teacher_dashboard_screen.dart';
 
 class FormBuilderScreen extends StatefulWidget {
   final String? templateId;
-  const FormBuilderScreen({super.key, this.templateId});
+  final String? ownerUserId;
+  final String? ownerLabel;
+  final bool canDelete;
+  final bool canDuplicate;
+
+  const FormBuilderScreen({
+    super.key,
+    this.templateId,
+    this.ownerUserId,
+    this.ownerLabel,
+    this.canDelete = false,
+    this.canDuplicate = true,
+  });
 
   @override
   State<FormBuilderScreen> createState() => _FormBuilderScreenState();
@@ -38,7 +50,7 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
   }
 
   void _initList() {
-    final uid = context.read<UserProvider>().user!.id;
+    final uid = widget.ownerUserId ?? context.read<UserProvider>().user!.id;
     _listStream = _svc.watchTemplatesByUser(uid);
 
     // si vino un id inicial, precargar stream
@@ -47,6 +59,15 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
       _selectedStream = _svc.watchTemplate(_selectedId!);
     }
     setState(() {});
+  }
+
+  String get _ownerId => widget.ownerUserId ?? context.read<UserProvider>().user!.id;
+
+  FormTemplate? get _selectedTemplate {
+    for (final template in _templates) {
+      if (template.id == _selectedId) return template;
+    }
+    return null;
   }
 
   void _selectTemplate(String id) {
@@ -133,8 +154,17 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          IconButton(
-                                            tooltip: 'Panel del docente',
+                                  if (widget.canDuplicate)
+                                    IconButton(
+                                      tooltip: 'Duplicar',
+                                      icon: const Icon(Icons.copy),
+                                      onPressed: () {
+                                        Navigator.pop(ctx);
+                                        _duplicateTemplate(t);
+                                      },
+                                    ),
+                                  IconButton(
+                                    tooltip: 'Panel del docente',
                                             icon: const Icon(
                                               Icons.dashboard_customize,
                                             ),
@@ -342,12 +372,8 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
                                 Navigator.pop(ctx); // cerrar dialogo
                                 setState(() => _busy = true);
                                 try {
-                                  final uid = context
-                                      .read<UserProvider>()
-                                      .user!
-                                      .id;
                                   final newId = await _svc.createTemplate(
-                                    createdBy: uid,
+                                    createdBy: _ownerId,
                                     initialTitle: 'Bitácora pedagógica',
                                     groupName: group,
                                     formStart: dStart,
@@ -380,6 +406,71 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
         );
       },
     );
+  }
+
+  Future<void> _duplicateTemplate(FormTemplate template) async {
+    setState(() => _busy = true);
+    try {
+      final newId = await _svc.duplicateTemplate(
+        sourceTemplateId: template.id,
+        createdBy: _ownerId,
+      );
+      _selectTemplate(newId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Plantilla duplicada')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo duplicar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _deleteTemplate(FormTemplate template) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar plantilla'),
+        content: Text(
+          'Se eliminara "${template.header.title}". Esta accion no se puede deshacer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Eliminar'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    setState(() => _busy = true);
+    try {
+      await _svc.deleteTemplate(template.id);
+      if (!mounted) return;
+      setState(() {
+        _selectedId = null;
+        _selectedStream = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Plantilla eliminada')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo eliminar: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Widget _errorCard(String msg, {VoidCallback? onRetry}) {
@@ -424,7 +515,11 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title: const Text('Constructor de formulario'),
+        title: Text(
+          widget.ownerLabel == null
+              ? 'Constructor de formulario'
+              : 'Bitacoras de ${widget.ownerLabel}',
+        ),
         backgroundColor: Colors.white,
         foregroundColor: primary,
         centerTitle: true,
@@ -442,6 +537,24 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
                         FormTeacherDashboardScreen(templateId: _selectedId!),
                   ),
                 );
+              },
+            ),
+          if (widget.canDuplicate && _selectedId != null)
+            IconButton(
+              tooltip: 'Duplicar',
+              icon: const Icon(Icons.copy),
+              onPressed: () {
+                final selected = _selectedTemplate;
+                if (selected != null) _duplicateTemplate(selected);
+              },
+            ),
+          if (widget.canDelete && _selectedId != null)
+            IconButton(
+              tooltip: 'Eliminar',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: () {
+                final selected = _selectedTemplate;
+                if (selected != null) _deleteTemplate(selected);
               },
             ),
           if (_selectedId != null)
@@ -484,6 +597,22 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
                       selectedId: _selectedId,
                       onPick: () => _openPicker(_templates),
                       onCreateNew: _showNewTemplateDialog,
+                      onDuplicate: widget.canDuplicate && _selectedId != null
+                          ? () {
+                              final selected = _selectedTemplate;
+                              if (selected != null) {
+                                _duplicateTemplate(selected);
+                              }
+                            }
+                          : null,
+                      onDelete: widget.canDelete && _selectedId != null
+                          ? () {
+                              final selected = _selectedTemplate;
+                              if (selected != null) {
+                                _deleteTemplate(selected);
+                              }
+                            }
+                          : null,
                     ),
                     const SizedBox(height: 16),
 
@@ -575,12 +704,16 @@ class _TopPickerBar extends StatelessWidget {
     required this.selectedId,
     required this.onPick,
     required this.onCreateNew,
+    this.onDuplicate,
+    this.onDelete,
   });
 
   final List<FormTemplate> templates;
   final String? selectedId;
   final VoidCallback onPick;
   final Future<void> Function() onCreateNew;
+  final VoidCallback? onDuplicate;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -655,6 +788,22 @@ class _TopPickerBar extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 10),
+        if (onDuplicate != null) ...[
+          IconButton.filledTonal(
+            tooltip: 'Duplicar plantilla',
+            onPressed: onDuplicate,
+            icon: const Icon(Icons.copy),
+          ),
+          const SizedBox(width: 8),
+        ],
+        if (onDelete != null) ...[
+          IconButton.filledTonal(
+            tooltip: 'Eliminar plantilla',
+            onPressed: onDelete,
+            icon: const Icon(Icons.delete_outline),
+          ),
+          const SizedBox(width: 8),
+        ],
         FilledButton.icon(
           onPressed: onCreateNew,
           icon: const Icon(Icons.add),

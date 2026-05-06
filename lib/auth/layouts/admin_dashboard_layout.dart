@@ -53,7 +53,7 @@ class _AdminDashboardLayoutState extends State<AdminDashboardLayout> {
         const MenuItemData(
           label: 'Bitacora',
           icon: Icons.edit_document,
-          route: '/bitacora_teacher',
+          route: '/admin_bitacora',
         ),
       );
     }

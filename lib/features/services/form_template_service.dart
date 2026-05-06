@@ -57,6 +57,39 @@ class FormTemplateService {
     return ref.id;
   }
 
+  Future<String> duplicateTemplate({
+    required String sourceTemplateId,
+    required String createdBy,
+  }) async {
+    final sourceDoc = await _col.doc(sourceTemplateId).get();
+    if (!sourceDoc.exists) {
+      throw StateError('Template no encontrado');
+    }
+
+    final source = FormTemplate.fromDoc(sourceDoc);
+    final code = await generateUniqueCode();
+    final now = DateTime.now();
+    final title = source.header.title.trim().isEmpty
+        ? 'Copia de formulario'
+        : '${source.header.title} (copia)';
+
+    final ref = await _col.add({
+      ...source.toMap(),
+      'code': code,
+      'header': source.header.copyWith(title: title).toMap(),
+      'createdBy': createdBy,
+      'createdAt': Timestamp.fromDate(now),
+      'updatedAt': Timestamp.fromDate(now),
+      'enrolledUserIds': <String>[],
+    });
+
+    return ref.id;
+  }
+
+  Future<void> deleteTemplate(String id) async {
+    await _col.doc(id).delete();
+  }
+
   Stream<FormTemplate> watchTemplate(String id) {
     return _col.doc(id).snapshots().map((d) {
       if (!d.exists) {
@@ -115,7 +148,7 @@ class FormTemplateService {
     return list;
   }
 
-    // Genera un id local (para secciones / subsecciones / campos)
+  // Genera un id local (para secciones / subsecciones / campos)
   String newLocalId() => _col.doc().id;
 
   Future<void> updateSections(String id, List<Section> sections) async {
@@ -124,5 +157,4 @@ class FormTemplateService {
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }
-
 }

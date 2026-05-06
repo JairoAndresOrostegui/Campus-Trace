@@ -25,6 +25,36 @@ class UserService {
         .toList();
   }
 
+  Future<List<UserModel>> obtenerDocentes({
+    String? institutionId,
+    String? campusId,
+  }) async {
+    Query<Map<String, dynamic>> query = _db
+        .collection('users')
+        .where('role', isEqualTo: 'Docente');
+
+    if (institutionId != null && institutionId.trim().isNotEmpty) {
+      query = query.where('institution', isEqualTo: institutionId.trim());
+    }
+    if (campusId != null && campusId.trim().isNotEmpty) {
+      query = query.where('campus', isEqualTo: campusId.trim());
+    }
+
+    final snapshot = await query.get();
+    final docentes = snapshot.docs
+        .map((doc) => UserModel.fromFirestore(doc.data(), doc.id))
+        .where((u) => (u.status ?? '').toLowerCase() == 'activo')
+        .toList();
+
+    docentes.sort((a, b) {
+      final an = '${a.firstName} ${a.lastName}'.toLowerCase();
+      final bn = '${b.firstName} ${b.lastName}'.toLowerCase();
+      return an.compareTo(bn);
+    });
+
+    return docentes;
+  }
+
   /// Obtener usuario por ID
   Future<UserModel?> obtenerPorId({
     required String uid,
