@@ -408,12 +408,53 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
     );
   }
 
+  Future<String?> _askDuplicateTitle(FormTemplate template) async {
+    final controller = TextEditingController(
+      text: template.header.title.trim().isEmpty
+          ? 'Copia de formulario'
+          : '${template.header.title} (copia)',
+    );
+
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Duplicar plantilla'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Nombre de la copia',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Duplicar'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (title == null || title.trim().isEmpty) return null;
+    return title.trim();
+  }
+
   Future<void> _duplicateTemplate(FormTemplate template) async {
+    final title = await _askDuplicateTitle(template);
+    if (title == null) return;
+
     setState(() => _busy = true);
     try {
       final newId = await _svc.duplicateTemplate(
         sourceTemplateId: template.id,
         createdBy: _ownerId,
+        title: title,
       );
       _selectTemplate(newId);
       if (!mounted) return;

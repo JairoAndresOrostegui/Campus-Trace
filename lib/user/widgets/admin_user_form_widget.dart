@@ -175,10 +175,14 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
 
   Future<void> _loadRoles() async {
     try {
+      final logged = context.read<UserProvider>().user!;
       final roles = await ParametersService().getRoles();
+      final visibleRoles = logged.role == 'Docente'
+          ? roles.where((role) => role.valor != 'Administrador').toList()
+          : roles;
       if (mounted) {
         setState(() {
-          _roles = _uniqueByValor(roles);
+          _roles = _uniqueByValor(visibleRoles);
           _rol =
               widget.usuario?.role ??
               (_roles.isNotEmpty ? _roles.first.valor : 'Estudiante');
@@ -451,6 +455,13 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
     final userProvider = context.read<UserProvider>();
     final usuarioLogueado = userProvider.user!;
     final esNuevo = widget.usuario == null;
+
+    if (usuarioLogueado.role == 'Docente' &&
+        (widget.usuario?.role == 'Administrador' || _rol == 'Administrador')) {
+      if (mounted) setState(() => _saving = false);
+      _showError('Un docente no puede crear ni modificar usuarios Administrador.');
+      return;
+    }
 
     final emailTrim = correoInstitucional.text.trim().toLowerCase();
     if (!emailTrim.endsWith('@udi.edu.co')) {

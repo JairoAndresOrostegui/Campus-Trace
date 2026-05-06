@@ -59,16 +59,18 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
     final teacher = _selectedTeacher;
     if (teacher == null) return;
 
+    final title = await _askDuplicateTitle(template);
+    if (title == null) return;
+
     setState(() => _busy = true);
     try {
-      await _templateSvc.duplicateTemplate(
+      final newId = await _templateSvc.duplicateTemplate(
         sourceTemplateId: template.id,
         createdBy: teacher.id,
+        title: title,
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Plantilla duplicada')),
-      );
+      _openBuilder(templateId: newId);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -77,6 +79,43 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Future<String?> _askDuplicateTitle(FormTemplate template) async {
+    final controller = TextEditingController(
+      text: template.header.title.trim().isEmpty
+          ? 'Copia de formulario'
+          : '${template.header.title} (copia)',
+    );
+
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Duplicar plantilla'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Nombre de la copia',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Duplicar'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (title == null || title.trim().isEmpty) return null;
+    return title.trim();
   }
 
   Future<void> _delete(FormTemplate template) async {

@@ -178,8 +178,16 @@
                                     final isSelf = logged.id == user.id;
                                     final isAdminUser =
                                         user.role == 'Administrador';
+                                    final loggedIsTeacher =
+                                        logged.role == 'Docente';
+                                    final canManageThisUser =
+                                        !(loggedIsTeacher && isAdminUser);
+                                    final puedeEditarEste =
+                                        puedeEditar && canManageThisUser;
                                     final puedeEliminarEste =
-                                        puedeEliminar && !(isSelf && isAdminUser);
+                                        puedeEliminar &&
+                                        canManageThisUser &&
+                                        !(isSelf && isAdminUser);
 
                                     return Padding(
                                       padding: const EdgeInsets.symmetric(
@@ -224,7 +232,7 @@
                                               : Row(
                                                   mainAxisSize: MainAxisSize.min,
                                                   children: [
-                                                    if (puedeEditar)
+                                                    if (puedeEditarEste)
                                                       IconButton(
                                                         tooltip: 'Editar',
                                                         icon: const Icon(
@@ -252,7 +260,7 @@
                                                 ),
                                           onTap: () => _mostrarFormulario(
                                             usuario: user,
-                                            soloLectura: !puedeEditar,
+                                            soloLectura: !puedeEditarEste,
                                           ),
                                         ),
                                       ),
@@ -307,6 +315,17 @@
       final logged = Provider.of<UserProvider>(context, listen: false).user!;
       final isSelf = logged.id == usuario.id;
       final isAdminUser = usuario.role == 'Administrador';
+      final loggedIsTeacher = logged.role == 'Docente';
+
+      if (loggedIsTeacher && isAdminUser) {
+        if (mounted) {
+          mostrarSnack(
+            context,
+            'Un docente no puede eliminar usuarios Administrador.',
+          );
+        }
+        return;
+      }
 
       if (isSelf && isAdminUser) {
         if (mounted) {

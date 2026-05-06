@@ -60,6 +60,7 @@ class FormTemplateService {
   Future<String> duplicateTemplate({
     required String sourceTemplateId,
     required String createdBy,
+    String? title,
   }) async {
     final sourceDoc = await _col.doc(sourceTemplateId).get();
     if (!sourceDoc.exists) {
@@ -69,14 +70,16 @@ class FormTemplateService {
     final source = FormTemplate.fromDoc(sourceDoc);
     final code = await generateUniqueCode();
     final now = DateTime.now();
-    final title = source.header.title.trim().isEmpty
+    final duplicateTitle = title?.trim().isNotEmpty == true
+        ? title!.trim()
+        : source.header.title.trim().isEmpty
         ? 'Copia de formulario'
         : '${source.header.title} (copia)';
 
     final ref = await _col.add({
       ...source.toMap(),
       'code': code,
-      'header': source.header.copyWith(title: title).toMap(),
+      'header': source.header.copyWith(title: duplicateTitle).toMap(),
       'createdBy': createdBy,
       'createdAt': Timestamp.fromDate(now),
       'updatedAt': Timestamp.fromDate(now),

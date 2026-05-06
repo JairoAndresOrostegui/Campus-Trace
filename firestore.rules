@@ -65,9 +65,15 @@ service cloud.firestore {
       }
     }
 
+    match /{path=**}/enrollments/{templateId} {
+      allow read: if isAdmin() || isTeacher() ||
+        (signedIn() && path.matches('users/' + request.auth.uid));
+    }
+
     match /form_templates/{templateId} {
       allow read: if signedIn();
-      allow create, delete: if isAdmin() || isTeacher();
+      allow create: if isAdmin() || isTeacher();
+      allow delete: if isAdmin();
       allow update: if isAdmin() || isTeacher() ||
         (
           isStudent() &&
