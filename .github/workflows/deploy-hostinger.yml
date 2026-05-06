@@ -54,7 +54,7 @@ jobs:
         uses: easingthemes/ssh-deploy@v5.1.0
         env:
           SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          REMOTE_HOST: ${{ secrets.HOSTINGER_HOST }}
+          REMOTE_HOST: 145.223.106.17
           REMOTE_USER: u851578647
           REMOTE_PORT: 65002
           SOURCE: build/web/
