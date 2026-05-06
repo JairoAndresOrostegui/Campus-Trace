@@ -1,4 +1,4 @@
-name: Deploy web to Hostinger
+name: Publish web build
 
 on:
   push:
@@ -7,13 +7,15 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: hostinger-production
+  group: hostinger-web-build
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    name: Build and deploy
+  publish:
+    name: Build and publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -50,13 +52,10 @@ jobs:
           </IfModule>
           EOF
 
-      - name: Deploy to Hostinger
-        uses: easingthemes/ssh-deploy@v5.1.0
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          REMOTE_HOST: 145.223.106.17
-          REMOTE_USER: u851578647
-          REMOTE_PORT: 65002
-          SOURCE: build/web/
-          TARGET: /home/u851578647/domains/bitacorapedagogica.com/public_html/
-          ARGS: -rlgoDzvc
+      - name: Publish build branch
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: hostinger-deploy
+          publish_dir: build/web
+          force_orphan: true
