@@ -1,8 +1,108 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{db}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userData() {
+      return get(/databases/$(db)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return signedIn() ? userData().role : null;
+    }
+
+    function isActive() {
+      return signedIn() && userData().status == 'activo';
+    }
+
+    function isAdmin() {
+      return isActive() && role() == 'Administrador';
+    }
+
+    function isTeacher() {
+      return isActive() && role() == 'Docente';
+    }
+
+    function isStudent() {
+      return isActive() && role() == 'Estudiante';
+    }
+
+    function ownUser(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    match /configuracion_estilos/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /parameters/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if isAdmin() ||
+        (
+          ownUser(userId) &&
+          request.resource.data.role == 'Estudiante' &&
+          request.resource.data.status == 'activo'
+        );
+      allow update: if isAdmin() ||
+        (
+          ownUser(userId) &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['photoUrl', 'fcmToken', 'fcmTokenUpdatedAt'])
+        );
+      allow delete: if isAdmin();
+
+      match /enrollments/{templateId} {
+        allow read: if isAdmin() || isTeacher() || ownUser(userId);
+        allow create, update, delete: if isAdmin() || ownUser(userId);
+      }
+    }
+
+    match /form_templates/{templateId} {
+      allow read: if signedIn();
+      allow create, delete: if isAdmin() || isTeacher();
+      allow update: if isAdmin() || isTeacher() ||
+        (
+          isStudent() &&
+          request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['enrolledUserIds'])
+        );
+    }
+
+    match /form_entries_drafts/{entryId} {
+      function entryOwner() {
+        return signedIn() && entryId.matches(request.auth.uid + '__.*');
+      }
+
+      allow read: if isAdmin() || isTeacher() || entryOwner();
+      allow create, update: if isAdmin() || isTeacher() || entryOwner();
+      allow delete: if isAdmin();
+    }
+
+    match /user_logs/{docId} {
+      allow read: if isAdmin();
+      allow create: if signedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    match /user_history/{docId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /mail/{docId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 9, 1);
+      allow read, write: if isAdmin();
     }
   }
 }
