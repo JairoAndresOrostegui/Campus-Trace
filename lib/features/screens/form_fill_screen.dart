@@ -334,11 +334,6 @@ class _FormFillScreenState extends State<FormFillScreen> {
         templateId: template.id,
         answers: answers,
       );
-      await _entrySvc.setDraftLocked(
-        userId: uid,
-        templateId: template.id,
-        locked: true,
-      );
 
       if (!mounted) return;
 
@@ -644,6 +639,7 @@ class _FormFillScreenState extends State<FormFillScreen> {
         return Text(label, style: const TextStyle(fontWeight: FontWeight.w600));
     }
   }
+
   /// Envuelve cada campo con el área de comentario del docente.
   /// En modo docente (`reviewMode = true`) el comentario es editable.
   /// En modo estudiante se muestra solo en lectura si existe.
@@ -1272,8 +1268,8 @@ class _FormFillScreenState extends State<FormFillScreen> {
                       ),
                     ],
 
-                                        // ====== BLOQUE ESTUDIANTE: ver feedback/nota cuando está disponible ======
-                    if (showEvalToStudent) ...[ 
+                    // ====== BLOQUE ESTUDIANTE: ver feedback/nota cuando está disponible ======
+                    if (showEvalToStudent) ...[
                       const SizedBox(height: 12),
                       StudentEvaluationPanel(
                         feedback: _feedback,
@@ -1281,7 +1277,7 @@ class _FormFillScreenState extends State<FormFillScreen> {
                         primaryColor: primary,
                       ),
                     ],
-const SizedBox(height: 8),
+                    const SizedBox(height: 8),
 
                     // Barra de acciones (solo estudiante)
                     if (!widget.reviewMode)
@@ -1313,5 +1309,3 @@ const SizedBox(height: 8),
     );
   }
 }
-
-

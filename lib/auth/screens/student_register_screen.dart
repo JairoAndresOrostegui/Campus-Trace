@@ -20,6 +20,8 @@ class _StudentRegisterScreenState extends State<StudentRegisterScreen> {
   final _lastName = TextEditingController();
   final _email = TextEditingController();
   final _document = TextEditingController();
+  final _password = TextEditingController();
+  final _confirmPassword = TextEditingController();
 
   // parámetros
   List<Parameter> _campus = [];
@@ -80,6 +82,8 @@ class _StudentRegisterScreenState extends State<StudentRegisterScreen> {
     _lastName.dispose();
     _email.dispose();
     _document.dispose();
+    _password.dispose();
+    _confirmPassword.dispose();
     super.dispose();
   }
 
@@ -94,6 +98,7 @@ class _StudentRegisterScreenState extends State<StudentRegisterScreen> {
     final last = _lastName.text.trim();
     final email = _email.text.trim().toLowerCase();
     final doc = _document.text.trim();
+    final password = _password.text;
 
     final campus = _selectedCampus ?? '';
     final docType = _selectedDocType;
@@ -144,10 +149,10 @@ class _StudentRegisterScreenState extends State<StudentRegisterScreen> {
       // Unicidad en Firestore
       final userSvc = UserService();
 
-      // 1) Auth: crear con password = documento
+      // 1) Auth: la contraseña la elige el estudiante; nunca es el documento.
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: email,
-        password: doc,
+        password: password,
       );
 
       final uid = cred.user!.uid;
@@ -290,8 +295,7 @@ class _StudentRegisterScreenState extends State<StudentRegisterScreen> {
                       TextFormField(
                         controller: _document,
                         decoration: const InputDecoration(
-                          labelText:
-                              'Número de documento (será tu contraseña inicial)',
+                          labelText: 'Número de documento',
                         ),
                         textInputAction: TextInputAction.next,
                         validator: (v) {
@@ -300,6 +304,35 @@ class _StudentRegisterScreenState extends State<StudentRegisterScreen> {
                           return null;
                         },
                         autofillHints: const [AutofillHints.password],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _password,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Contraseña',
+                          helperText:
+                              'El documento no se utiliza como contraseña.',
+                        ),
+                        validator: (value) {
+                          if (value == null || value.length < 8) {
+                            return 'Usa al menos 8 caracteres';
+                          }
+                          return null;
+                        },
+                        autofillHints: const [AutofillHints.newPassword],
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _confirmPassword,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Confirmar contraseña',
+                        ),
+                        validator: (value) => value != _password.text
+                            ? 'Las contraseñas no coinciden'
+                            : null,
+                        autofillHints: const [AutofillHints.newPassword],
                       ),
                       const SizedBox(height: 12),
                       // Campus

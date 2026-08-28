@@ -17,9 +17,22 @@ service firebase.storage {
         userData().role == 'Administrador';
     }
 
+    function canManageUser(userId) {
+      let caller = userData();
+      let target = firestore.get(
+        /databases/(default)/documents/users/$(userId)
+      ).data;
+      return signedIn() &&
+        caller.status == 'activo' &&
+        caller.role == 'Docente' &&
+        caller.get('permissions', []).hasAny(['usuarios.editar']) &&
+        target.role != 'Administrador';
+    }
+
     match /fotos_perfil/{userId}/{fileName} {
       allow read: if true;
-      allow write: if isAdmin() || (signedIn() && request.auth.uid == userId);
+      allow write: if isAdmin() || canManageUser(userId) ||
+        (signedIn() && request.auth.uid == userId);
     }
 
     match /{allPaths=**} {

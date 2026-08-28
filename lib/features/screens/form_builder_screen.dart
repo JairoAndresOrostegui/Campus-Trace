@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../providers/user_provider.dart';
 import '../models/form_template.dart';
 import '../services/form_template_service.dart';
+import '../widgets/template_picker_bar.dart';
 import '../widgets/header_editor.dart';
 import '../widgets/section_list_editor.dart';
 import 'form_preview_screen.dart';
@@ -61,7 +62,8 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
     setState(() {});
   }
 
-  String get _ownerId => widget.ownerUserId ?? context.read<UserProvider>().user!.id;
+  String get _ownerId =>
+      widget.ownerUserId ?? context.read<UserProvider>().user!.id;
 
   FormTemplate? get _selectedTemplate {
     for (final template in _templates) {
@@ -154,17 +156,17 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
                                       trailing: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                  if (widget.canDuplicate)
-                                    IconButton(
-                                      tooltip: 'Duplicar',
-                                      icon: const Icon(Icons.copy),
-                                      onPressed: () {
-                                        Navigator.pop(ctx);
-                                        _duplicateTemplate(t);
-                                      },
-                                    ),
-                                  IconButton(
-                                    tooltip: 'Panel del docente',
+                                          if (widget.canDuplicate)
+                                            IconButton(
+                                              tooltip: 'Duplicar',
+                                              icon: const Icon(Icons.copy),
+                                              onPressed: () {
+                                                Navigator.pop(ctx);
+                                                _duplicateTemplate(t);
+                                              },
+                                            ),
+                                          IconButton(
+                                            tooltip: 'Panel del docente',
                                             icon: const Icon(
                                               Icons.dashboard_customize,
                                             ),
@@ -458,14 +460,14 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
       );
       _selectTemplate(newId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Plantilla duplicada')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Plantilla duplicada')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo duplicar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo duplicar: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -501,14 +503,14 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
         _selectedId = null;
         _selectedStream = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Plantilla eliminada')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Plantilla eliminada')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo eliminar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -633,7 +635,7 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
                 ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
-                    _TopPickerBar(
+                    TemplatePickerBar(
                       templates: _templates,
                       selectedId: _selectedId,
                       onPick: () => _openPicker(_templates),
@@ -735,122 +737,6 @@ class _FormBuilderScreenState extends State<FormBuilderScreen> {
           },
         ),
       ),
-    );
-  }
-}
-
-class _TopPickerBar extends StatelessWidget {
-  const _TopPickerBar({
-    required this.templates,
-    required this.selectedId,
-    required this.onPick,
-    required this.onCreateNew,
-    this.onDuplicate,
-    this.onDelete,
-  });
-
-  final List<FormTemplate> templates;
-  final String? selectedId;
-  final VoidCallback onPick;
-  final Future<void> Function() onCreateNew;
-  final VoidCallback? onDuplicate;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    final primary = Theme.of(context).colorScheme.primary;
-
-    // plantilla seleccionada (si hay)
-    FormTemplate? selected;
-    if (selectedId != null) {
-      for (final t in templates) {
-        if (t.id == selectedId) {
-          selected = t;
-          break;
-        }
-      }
-    }
-
-    final hasSelection = selectedId != null && selected != null;
-
-    return Row(
-      children: [
-        // "Selector con buscador": caja clickeable que abre el modal con búsqueda
-        Expanded(
-          child: InkWell(
-            onTap: onPick,
-            borderRadius: BorderRadius.circular(12),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: primary.withValues(alpha: .15)),
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [primary.withValues(alpha: .06), Colors.white],
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.folder_open, color: primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          hasSelection
-                              ? selected.header.title
-                              : 'Selecciona una plantilla…',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        if (hasSelection)
-                          Text(
-                            '#${selected.code}  •  ${selected.groupName.isEmpty ? "—" : selected.groupName}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black.withValues(alpha: .6),
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Icon(Icons.search, color: primary),
-                ],
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 10),
-        if (onDuplicate != null) ...[
-          IconButton.filledTonal(
-            tooltip: 'Duplicar plantilla',
-            onPressed: onDuplicate,
-            icon: const Icon(Icons.copy),
-          ),
-          const SizedBox(width: 8),
-        ],
-        if (onDelete != null) ...[
-          IconButton.filledTonal(
-            tooltip: 'Eliminar plantilla',
-            onPressed: onDelete,
-            icon: const Icon(Icons.delete_outline),
-          ),
-          const SizedBox(width: 8),
-        ],
-        FilledButton.icon(
-          onPressed: onCreateNew,
-          icon: const Icon(Icons.add),
-          label: const Text('Crear nuevo'),
-        ),
-      ],
     );
   }
 }

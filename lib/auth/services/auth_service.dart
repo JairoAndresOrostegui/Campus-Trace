@@ -26,20 +26,27 @@ class AuthService {
         throw Exception('No se pudo identificar el usuario.');
       }
 
-      final usuariosRef = _firestore.collection('users');
-      final query = await usuariosRef
-          .where('institutionalEmail', isEqualTo: email.trim())
-          .limit(1)
-          .get();
-
-      if (query.docs.isEmpty) {
+      final userDoc = await _firestore.collection('users').doc(uid).get();
+      if (!userDoc.exists || userDoc.data() == null) {
         await _auth.signOut();
         throw Exception('El usuario no está registrado en la base de datos.');
       }
 
-      final userDoc = query.docs.first;
-      final data = userDoc.data();
-      final uidFirestore = userDoc.id;
+      final data = userDoc.data()!;
+      final profileEmail = (data['institutionalEmail'] ?? '')
+          .toString()
+          .trim()
+          .toLowerCase();
+      final authenticatedEmail = (credential.user?.email ?? '')
+          .trim()
+          .toLowerCase();
+      if (profileEmail != authenticatedEmail) {
+        await _auth.signOut();
+        throw Exception(
+          'El correo de acceso no coincide con el perfil. '
+          'Solicita al administrador sincronizar la cuenta.',
+        );
+      }
 
       if ((data['status'] ?? '').toLowerCase() != estadoActivo) {
         await _auth.signOut();
@@ -48,7 +55,7 @@ class AuthService {
         );
       }
 
-      return UserModel.fromFirestore(data, uidFirestore);
+      return UserModel.fromFirestore(data, uid);
     } on FirebaseAuthException catch (e) {
       switch (e.code) {
         case 'invalid-credential':
@@ -70,26 +77,7 @@ class AuthService {
   }
 
   Future<void> sendPasswordResetEmail(String email) async {
-    final usuarios = _firestore.collection('users');
-    final query = await usuarios
-        .where('institutionalEmail', isEqualTo: email.trim())
-        .limit(1)
-        .get();
-
-    if (query.docs.isEmpty) {
-      throw Exception('No existe una cuenta con ese correo.');
-    }
-
-    final userData = query.docs.first.data();
-    final role = userData['role'];
-
-    if (role == 'Estudiante') {
-      throw Exception(
-        'Este correo pertenece a un estudiante. Por favor, comuníquese con el administrador.',
-      );
-    }
-
-    await _auth.sendPasswordResetEmail(email: email.trim());
+    await _auth.sendPasswordResetEmail(email: email.trim().toLowerCase());
   }
 
   Future<void> logout(UserModel currentUser) async {

@@ -1,11 +1,11 @@
 {
-    "name": "campus_trace",
-    "short_name": "campus_trace",
+    "name": "Bitácora Pedagógica",
+    "short_name": "Bitácora BP",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#FFFFFF",
+    "theme_color": "#9D002B",
+    "description": "Seguimiento y gestión de experiencias formativas.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

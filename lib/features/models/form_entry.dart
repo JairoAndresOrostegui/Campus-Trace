@@ -32,15 +32,8 @@ class FormEntry {
   ///
   /// En el esquema actual solo se usan las claves planas, pero
   /// dejamos este helper para centralizar la lógica de lectura.
-  static Map<String, dynamic> mergeAnswersFromData(
-    Map<String, dynamic> data,
-  ) {
+  static Map<String, dynamic> mergeAnswersFromData(Map<String, dynamic> data) {
     final answers = <String, dynamic>{};
-
-    final rawAnswers = data['answers'];
-    if (rawAnswers is Map) {
-      answers.addAll(Map<String, dynamic>.from(rawAnswers));
-    }
 
     data.forEach((key, value) {
       if (key.startsWith('answers.')) {
@@ -48,6 +41,13 @@ class FormEntry {
         answers[fieldId] = value;
       }
     });
+
+    // La representación anidada es la actual. Se aplica al final para que
+    // prevalezca sobre posibles claves planas heredadas del esquema anterior.
+    final rawAnswers = data['answers'];
+    if (rawAnswers is Map) {
+      answers.addAll(Map<String, dynamic>.from(rawAnswers));
+    }
 
     return answers;
   }
@@ -57,6 +57,7 @@ class FormEntry {
       'templateId': templateId,
       'userId': userId,
       'createdAt': Timestamp.fromDate(createdAt),
+      'answers': answers,
       if (comments != null) 'comments': comments,
       if (feedback != null) 'feedback': feedback,
       if (grade != null) 'grade': grade,

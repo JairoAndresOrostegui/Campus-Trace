@@ -29,8 +29,33 @@ service cloud.firestore {
       return isActive() && role() == 'Estudiante';
     }
 
+    function hasPermission(permission) {
+      return isActive() && userData().get('permissions', []).hasAny([permission]);
+    }
+
     function ownUser(userId) {
       return signedIn() && request.auth.uid == userId;
+    }
+
+    function templateData(templateId) {
+      return get(/databases/$(db)/documents/form_templates/$(templateId)).data;
+    }
+
+    function ownsTemplate(templateId) {
+      return isTeacher() && templateData(templateId).createdBy == request.auth.uid;
+    }
+
+    function onlyOwnEnrollmentChanged() {
+      let previous = resource.data.get('enrolledUserIds', []).toSet();
+      let next = request.resource.data.get('enrolledUserIds', []).toSet();
+      return next.difference(previous).hasOnly([request.auth.uid]) &&
+        previous.difference(next).hasOnly([request.auth.uid]);
+    }
+
+    function studentCanUseTemplate(templateId) {
+      return isStudent() &&
+        templateData(templateId).get('enrolledUserIds', [])
+          .toSet().hasAny([request.auth.uid]);
     }
 
     match /configuracion_estilos/{docId} {
@@ -61,7 +86,12 @@ service cloud.firestore {
 
       match /enrollments/{templateId} {
         allow read: if isAdmin() || isTeacher() || ownUser(userId);
-        allow create, update, delete: if isAdmin() || ownUser(userId);
+        allow create, update: if isAdmin() ||
+          (
+            ownUser(userId) &&
+            request.resource.data.templateId == templateId
+          );
+        allow delete: if isAdmin() || ownUser(userId);
       }
     }
 
@@ -72,34 +102,97 @@ service cloud.firestore {
 
     match /form_templates/{templateId} {
       allow read: if signedIn();
-      allow create: if isAdmin() || isTeacher();
+      allow create: if isAdmin() ||
+        (isTeacher() && request.resource.data.createdBy == request.auth.uid);
       allow delete: if isAdmin();
-      allow update: if isAdmin() || isTeacher() ||
+      allow update: if isAdmin() ||
+        (
+          ownsTemplate(templateId) &&
+          request.resource.data.createdBy == resource.data.createdBy
+        ) ||
         (
           isStudent() &&
           request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['enrolledUserIds'])
+            .hasOnly(['enrolledUserIds']) &&
+          onlyOwnEnrollmentChanged()
         );
     }
 
     match /form_entries_drafts/{entryId} {
-      function entryOwner() {
-        return signedIn() && entryId.matches(request.auth.uid + '__.*');
+      function currentEntryOwner() {
+        return signedIn() &&
+          entryId.matches(request.auth.uid + '__.*') &&
+          resource.data.userId == request.auth.uid;
       }
 
-      allow read: if isAdmin() || isTeacher() || entryOwner();
-      allow create, update: if isAdmin() || isTeacher() || entryOwner();
+      function requestedEntryOwner() {
+        return signedIn() &&
+          entryId.matches(request.auth.uid + '__.*') &&
+          request.resource.data.userId == request.auth.uid;
+      }
+
+      function validStudentState() {
+        return (request.resource.data.locked == false &&
+                request.resource.data.stage == 'draft') ||
+          (request.resource.data.locked == true &&
+           request.resource.data.stage == 'submitted');
+      }
+
+      function studentCreateAllowed() {
+        return requestedEntryOwner() &&
+          studentCanUseTemplate(request.resource.data.templateId) &&
+          request.resource.data.keys().hasOnly([
+            'answers', 'createdAt', 'locked', 'lockedAt', 'stage',
+            'templateId', 'updatedAt', 'userId'
+          ]) &&
+          validStudentState();
+      }
+
+      function studentUpdateAllowed() {
+        return currentEntryOwner() &&
+          resource.data.locked != true &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.templateId == resource.data.templateId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'answers', 'createdAt', 'locked', 'lockedAt', 'stage', 'updatedAt'
+          ]) &&
+          validStudentState();
+      }
+
+      function teacherReviewAllowed() {
+        return ownsTemplate(resource.data.templateId) &&
+          request.resource.data.userId == resource.data.userId &&
+          request.resource.data.templateId == resource.data.templateId &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'comments', 'feedback', 'grade', 'gradedAt', 'gradedBy',
+            'locked', 'stage', 'updatedAt'
+          ]) &&
+          (
+            !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['gradedBy']) ||
+            request.resource.data.gradedBy == request.auth.uid
+          );
+      }
+
+      allow read: if isAdmin() || currentEntryOwner() ||
+        ownsTemplate(resource.data.templateId);
+      allow create: if isAdmin() || studentCreateAllowed();
+      allow update: if isAdmin() || studentUpdateAllowed() ||
+        teacherReviewAllowed();
       allow delete: if isAdmin();
     }
 
     match /user_logs/{docId} {
       allow read: if isAdmin();
-      allow create: if signedIn();
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
     match /user_history/{docId} {
-      allow read, create: if isAdmin();
+      allow read: if isAdmin();
+      allow create: if isAdmin() ||
+        (isTeacher() && hasPermission('usuarios.editar'));
       allow update, delete: if isAdmin();
     }
 

@@ -1093,9 +1093,7 @@ class _SectionsEditorState extends State<SectionsEditor> {
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   buildDefaultDragHandles: false,
-                  onReorder: (oldIndex, newIndex) {
-                    if (newIndex > oldIndex) newIndex -= 1;
-
+                  onReorderItem: (oldIndex, newIndex) {
                     // localizar sección
                     final si = _sections.indexWhere((x) => x.id == s.id);
                     if (si < 0) return;
@@ -1264,9 +1262,7 @@ class _SectionsEditorState extends State<SectionsEditor> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               buildDefaultDragHandles: false,
-              onReorder: (oldIndex, newIndex) {
-                if (newIndex > oldIndex) newIndex -= 1;
-
+              onReorderItem: (oldIndex, newIndex) {
                 // localizar sección y subsección vigentes
                 final si = _sections.indexWhere((x) => x.id == parent.id);
                 if (si < 0) return;

@@ -77,6 +77,7 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
   bool _isLoading = true; // carga de parámetros
   bool esSuperadminActual = false;
   bool _saving = false; // spinner guardando
+  bool _sendingAccessLink = false;
 
   // === Helper para evitar duplicados por valor ===
   List<Parameter> _uniqueByValor(List<Parameter> list) {
@@ -117,7 +118,10 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
     funcionalidades = List<String>.from(u?.permissions ?? []);
     _status = (u?.status ?? 'activo');
 
-    esSuperadminActual = (userLogged.permissions ?? []).contains('superadmin');
+    esSuperadminActual =
+        userLogged.role == 'Administrador' ||
+        userLogged.role == 'Superadmin' ||
+        (userLogged.permissions ?? []).contains('superadmin');
 
     institucion = TextEditingController(
       text: esSuperadminActual
@@ -383,20 +387,34 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
                           ),
 
                           if (!widget.soloLectura)
-                            Semantics(
-                              label: 'Botón para guardar usuario',
-                              enabled: true,
-                              focusable: true,
-                              button: true,
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: ElevatedButton.icon(
-                                  onPressed: (_isLoading || _saving)
-                                      ? null
-                                      : _guardarUsuario,
-                                  icon: const Icon(Icons.save),
-                                  label: const Text('Guardar'),
-                                ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.end,
+                                children: [
+                                  if (!esNuevo)
+                                    OutlinedButton.icon(
+                                      onPressed:
+                                          (_isLoading ||
+                                              _saving ||
+                                              _sendingAccessLink)
+                                          ? null
+                                          : _enviarEnlaceAcceso,
+                                      icon: const Icon(Icons.mark_email_read),
+                                      label: const Text(
+                                        'Enviar enlace de acceso',
+                                      ),
+                                    ),
+                                  ElevatedButton.icon(
+                                    onPressed: (_isLoading || _saving)
+                                        ? null
+                                        : _guardarUsuario,
+                                    icon: const Icon(Icons.save),
+                                    label: const Text('Guardar'),
+                                  ),
+                                ],
                               ),
                             ),
                         ],
@@ -459,12 +477,14 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
     if (usuarioLogueado.role == 'Docente' &&
         (widget.usuario?.role == 'Administrador' || _rol == 'Administrador')) {
       if (mounted) setState(() => _saving = false);
-      _showError('Un docente no puede crear ni modificar usuarios Administrador.');
+      _showError(
+        'Un docente no puede crear ni modificar usuarios Administrador.',
+      );
       return;
     }
 
     final emailTrim = correoInstitucional.text.trim().toLowerCase();
-    if (!emailTrim.endsWith('@udi.edu.co')) {
+    if (!esSuperadminActual && !emailTrim.endsWith('@udi.edu.co')) {
       if (mounted) setState(() => _saving = false);
       _showError('El correo debe ser @udi.edu.co.');
       return;
@@ -542,19 +562,12 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
 
     try {
       if (esNuevo) {
-        final uid = await service.crearUsuarioDesdeAdmin(
-          email: nuevoUsuario.institutionalEmail,
-          password: nuevoUsuario.documentNumber ?? documento.text.trim(),
-          nombres: nuevoUsuario.firstName,
-          apellidos: nuevoUsuario.lastName,
-          rol: nuevoUsuario.role,
-          documento: nuevoUsuario.documentNumber ?? '',
-        );
+        final uid = await service.crearUsuarioDesdeAdmin(usuario: nuevoUsuario);
 
         if (_pickedImageBytes != null) {
-          nuevaFotoUrl = await ProfileService().uploadProfilePhoto(
-            Uint8List.fromList(_pickedImageBytes!),
-            'profile_$uid.png',
+          nuevaFotoUrl = await ProfileService().subirFotoPerfil(
+            bytes: Uint8List.fromList(_pickedImageBytes!),
+            uid: uid,
           );
         }
 
@@ -563,7 +576,9 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
           photoUrl: nuevaFotoUrl ?? nuevoUsuario.photoUrl,
         );
 
-        await service.guardarUsuario(usuarioConUid);
+        if (_pickedImageBytes != null) {
+          await service.actualizarUsuarioDesdeAdmin(usuarioConUid);
+        }
         await service.registrarHistorial(
           usuario: usuarioConUid,
           accion: 'creado',
@@ -572,9 +587,9 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
         );
       } else {
         if (_pickedImageBytes != null) {
-          nuevaFotoUrl = await ProfileService().uploadProfilePhoto(
-            Uint8List.fromList(_pickedImageBytes!),
-            'profile_${nuevoUsuario.id}.png',
+          nuevaFotoUrl = await ProfileService().subirFotoPerfil(
+            bytes: Uint8List.fromList(_pickedImageBytes!),
+            uid: nuevoUsuario.id,
           );
         }
 
@@ -582,7 +597,7 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
           photoUrl: nuevaFotoUrl ?? nuevoUsuario.photoUrl,
         );
 
-        await service.guardarUsuario(usuarioEditado);
+        await service.actualizarUsuarioDesdeAdmin(usuarioEditado);
         await service.registrarHistorial(
           usuario: usuarioEditado,
           accion: 'editado',
@@ -593,9 +608,34 @@ class _AdminUserFormWidgetState extends State<AdminUserFormWidget> {
 
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      if (mounted) Navigator.of(context).pop(false);
+      if (mounted) {
+        _showError(e.toString().replaceAll('Exception: ', ''));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _enviarEnlaceAcceso() async {
+    final usuario = widget.usuario;
+    if (usuario == null) return;
+    setState(() => _sendingAccessLink = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await UserService().enviarEnlaceAcceso(usuario.id);
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Enlace enviado a ${usuario.institutionalEmail}.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showError(e.toString().replaceAll('Exception: ', ''));
+      }
+    } finally {
+      if (mounted) setState(() => _sendingAccessLink = false);
     }
   }
 

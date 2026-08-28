@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "campustrace-645c3"
+  },
+  "targets": {},
+  "etags": {
+    "campustrace-645c3": {
+      "extensionInstances": {
+        "firestore-send-email-s603": "1b3b162003e3d61945d666008921ecc30c3c4f0ce328c6e9a711b95419f1af0c"
+      }
+    }
   }
 }

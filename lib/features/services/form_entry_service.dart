@@ -64,17 +64,9 @@ class FormEntryService {
 
     final data = doc.data()!;
 
-    // answers: tomamos solo las claves planas "answers.campo"
-    final answersMap = <String, dynamic>{};
-    data.forEach((key, value) {
-      if (key.startsWith('answers.')) {
-        final fid = key.substring('answers.'.length);
-        if (value is Timestamp) {
-          answersMap[fid] = value.toDate().toIso8601String();
-        } else {
-          answersMap[fid] = value;
-        }
-      }
+    final answersMap = FormEntry.mergeAnswersFromData(data);
+    answersMap.updateAll((_, value) {
+      return value is Timestamp ? value.toDate().toIso8601String() : value;
     });
 
     // comments
@@ -90,8 +82,9 @@ class FormEntryService {
     final stage =
         (data['stage'] as String?) ?? (locked ? 'submitted' : 'draft');
     final feedback = data['feedback'] as String?;
-    final grade =
-        (data['grade'] is num) ? (data['grade'] as num).toDouble() : null;
+    final grade = (data['grade'] is num)
+        ? (data['grade'] as num).toDouble()
+        : null;
 
     return DraftEntry(
       answers: answersMap,
@@ -112,19 +105,17 @@ class FormEntryService {
         .collection('form_entries_drafts')
         .doc(_draftDocId(userId, templateId));
 
+    final normalizedAnswers = answers.map(
+      (key, value) => MapEntry(key, normalizeDraftFieldValue(value)),
+    );
     final payload = <String, dynamic>{
       'userId': userId,
       'templateId': templateId,
       'locked': false,
+      'stage': 'draft',
       'updatedAt': FieldValue.serverTimestamp(),
-      // limpiamos el mapa antiguo "answers" y usamos solo claves punteadas
-      'answers': FieldValue.delete(),
+      'answers': normalizedAnswers,
     };
-
-    answers.forEach((key, value) {
-      final normalized = normalizeDraftFieldValue(value);
-      payload['answers.$key'] = normalized;
-    });
 
     await ref.set(payload, SetOptions(merge: true));
   }
@@ -146,7 +137,7 @@ class FormEntryService {
       'templateId': templateId,
       'locked': false,
       'updatedAt': FieldValue.serverTimestamp(),
-      'answers.$fieldId': finalVal, // deep-merge por clave punteada
+      'answers': {fieldId: finalVal},
       'stage': 'draft',
     }, SetOptions(merge: true));
   }
@@ -205,22 +196,19 @@ class FormEntryService {
 
     final now = DateTime.now();
 
+    final normalizedAnswers = answers.map(
+      (key, value) => MapEntry(key, normalizeDraftFieldValue(value)),
+    );
     final payload = <String, dynamic>{
       'templateId': templateId,
       'userId': userId,
       'createdAt': Timestamp.fromDate(now),
-      // solo usamos la representación con claves punteadas
-      'answers': FieldValue.delete(),
+      'answers': normalizedAnswers,
       'stage': 'submitted',
       'locked': true,
       'lockedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     };
-
-    answers.forEach((key, value) {
-      final normalized = normalizeDraftFieldValue(value);
-      payload['answers.$key'] = normalized;
-    });
 
     await ref.set(payload, SetOptions(merge: true));
 
@@ -250,22 +238,6 @@ class FormEntryService {
     );
   }
 
-  Future<void> setDraftLocked({
-    required String userId,
-    required String templateId,
-    required bool locked,
-  }) async {
-    await _db
-        .collection('form_entries_drafts')
-        .doc(_draftDocId(userId, templateId))
-        .set(
-      {
-        'locked': locked,
-        'updatedAt': FieldValue.serverTimestamp(),
-      },
-      SetOptions(merge: true),
-    );
-  }
 }
 
 class EnrollmentInfo {

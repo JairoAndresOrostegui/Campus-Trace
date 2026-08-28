@@ -6,10 +6,7 @@ void main() {
   group('FormEntry.mergeAnswersFromData', () {
     test('combina mapa answers con claves answers.<campo>', () {
       final data = <String, dynamic>{
-        'answers': {
-          'a': 'v1',
-          'b': 'v2_old',
-        },
+        'answers': {'a': 'v1', 'b': 'v2_old'},
         'answers.b': 'v2_new',
         'answers.c': 123,
       };
@@ -17,16 +14,13 @@ void main() {
       final merged = FormEntry.mergeAnswersFromData(data);
 
       expect(merged['a'], 'v1');
-      expect(merged['b'], 'v2_new');
+      expect(merged['b'], 'v2_old');
       expect(merged['c'], 123);
       expect(merged.length, 3);
     });
 
     test('funciona cuando solo hay claves answers.<campo>', () {
-      final data = <String, dynamic>{
-        'answers.x': 'hola',
-        'answers.y': null,
-      };
+      final data = <String, dynamic>{'answers.x': 'hola', 'answers.y': null};
 
       final merged = FormEntry.mergeAnswersFromData(data);
 
@@ -41,13 +35,9 @@ void main() {
         'templateId': 'tmpl1',
         'userId': 'user1',
         'createdAt': Timestamp.fromMillisecondsSinceEpoch(1700000000000),
-        'answers': {
-          'a': 'v1',
-        },
+        'answers': {'a': 'v1'},
         'answers.b': 'v2',
-        'comments': {
-          'a': 'ok',
-        },
+        'comments': {'a': 'ok'},
         'feedback': 'bien',
         'grade': 4.5,
         'stage': 'graded',

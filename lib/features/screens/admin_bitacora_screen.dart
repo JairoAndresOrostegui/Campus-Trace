@@ -27,15 +27,26 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
   void initState() {
     super.initState();
     final current = context.read<UserProvider>().user;
-    _teachersFuture = _userSvc.obtenerDocentes(
-      institutionId: current?.institution,
-      campusId: current?.campus,
-    );
+    _selectedTeacher = current;
+    _teachersFuture = _loadTeachingOwners(current);
+  }
+
+  Future<List<UserModel>> _loadTeachingOwners(UserModel? current) async {
+    final teachers = await _userSvc.obtenerDocentes();
+    if (current != null &&
+        current.role == 'Administrador' &&
+        (current.status ?? '').toLowerCase() == 'activo' &&
+        !teachers.any((teacher) => teacher.id == current.id)) {
+      teachers.insert(0, current);
+    }
+    return teachers;
   }
 
   String _teacherName(UserModel teacher) {
     final name = '${teacher.firstName} ${teacher.lastName}'.trim();
-    return name.isEmpty ? teacher.institutionalEmail : name;
+    final label = name.isEmpty ? teacher.institutionalEmail : name;
+    final currentId = context.read<UserProvider>().user?.id;
+    return teacher.id == currentId ? '$label (mi cuenta)' : label;
   }
 
   void _openBuilder({String? templateId}) {
@@ -73,9 +84,9 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
       _openBuilder(templateId: newId);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo duplicar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo duplicar: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -144,14 +155,14 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
     try {
       await _templateSvc.deleteTemplate(template.id);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Plantilla eliminada')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Plantilla eliminada')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo eliminar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('No se pudo eliminar: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -187,7 +198,9 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
               builder: (context, snap) {
                 if (snap.hasError) {
                   return Center(
-                    child: Text('No se pudieron cargar docentes: ${snap.error}'),
+                    child: Text(
+                      'No se pudieron cargar docentes: ${snap.error}',
+                    ),
                   );
                 }
                 if (!snap.hasData) {

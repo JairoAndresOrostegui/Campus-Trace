@@ -46,10 +46,6 @@ class ProfileService {
 
     final url = await uploadTask.ref.getDownloadURL();
 
-    await _firestore.collection('users').doc(uid).update({
-      'photoUrl': url,
-    });
-
     return url;
   }
 }

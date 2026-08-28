@@ -6,19 +6,21 @@ import '../../auth/models/user.dart';
 class UserService {
   final _db = FirebaseFirestore.instance;
 
-  // URL pública del portal (ajústala si es necesario)
-  static const String portalUrl = 'https://bitacorapedagogica.com/';
-
   /// Obtener todos los usuarios desde la colección 'users'
   Future<List<UserModel>> obtenerTodos({
     required String institutionId,
     required String campusId,
+    bool includeAllCampuses = false,
+    bool includeAllInstitutions = false,
   }) async {
-    final snapshot = await _db
-        .collection('users')
-        .where('institution', isEqualTo: institutionId)
-        .where('campus', isEqualTo: campusId)
-        .get();
+    Query<Map<String, dynamic>> query = _db.collection('users');
+    if (!includeAllInstitutions) {
+      query = query.where('institution', isEqualTo: institutionId);
+    }
+    if (!includeAllCampuses) {
+      query = query.where('campus', isEqualTo: campusId);
+    }
+    final snapshot = await query.get();
 
     return snapshot.docs
         .map((doc) => UserModel.fromFirestore(doc.data(), doc.id))
@@ -90,50 +92,47 @@ class UserService {
     return docRef.id;
   }
 
-  /// Crear usuario en Firebase Auth + Firestore vía Cloud Function
-  Future<String> crearUsuarioDesdeAdmin({
-    required String email,
-    required String password,
-    required String nombres,
-    required String apellidos,
-    required String rol,
-    required String documento, // usar documentNumber si aplicable
-  }) async {
+  /// Crea el usuario en Authentication y Firestore mediante una sola función.
+  /// La contraseña se define desde el enlace personal enviado por correo.
+  Future<String> crearUsuarioDesdeAdmin({required UserModel usuario}) async {
     final callable = FirebaseFunctions.instance.httpsCallable(
       'crearUsuarioDesdeAdmin',
     );
-    final result = await callable.call({
-      'email': email,
-      'password': password,
-      'nombres': nombres,
-      'apellidos': apellidos,
-      'rol': rol,
-      'documento': documento,
-    });
+    final result = await callable.call({'user': usuario.toMap()});
+    final data = Map<String, dynamic>.from(result.data as Map);
 
-    if (result.data['exito'] != true) {
+    if (data['exito'] != true) {
       throw Exception('No se pudo crear el usuario');
     }
+    return data['uid'] as String;
+  }
 
-    final String uid = result.data['uid'];
-
-    // ===== Correo de bienvenida (no interrumpe si falla) =====
-    try {
-      final enviarBienvenida = FirebaseFunctions.instance.httpsCallable(
-        'enviarCorreoBienvenida',
-      );
-      await enviarBienvenida.call({
-        'email': email,
-        'nombres': nombres,
-        'apellidos': apellidos,
-        'documento': documento, // se usa como password inicial
-        'portalUrl': portalUrl,
-      });
-    } catch (_) {
-      // Ignorar errores de correo para no bloquear el alta.
+  /// Sincroniza el usuario en Authentication y Firestore. Cuando cambia el
+  /// correo, también envía al nuevo correo un enlace para configurar acceso.
+  Future<bool> actualizarUsuarioDesdeAdmin(UserModel usuario) async {
+    final callable = FirebaseFunctions.instance.httpsCallable(
+      'actualizarUsuarioDesdeAdmin',
+    );
+    final result = await callable.call({
+      'uid': usuario.id,
+      'user': usuario.toMap(),
+    });
+    final data = Map<String, dynamic>.from(result.data as Map);
+    if (data['exito'] != true) {
+      throw Exception('No se pudo actualizar el usuario');
     }
+    return data['enlaceEnviado'] == true;
+  }
 
-    return uid;
+  Future<void> enviarEnlaceAcceso(String uid) async {
+    final callable = FirebaseFunctions.instance.httpsCallable(
+      'enviarEnlaceAcceso',
+    );
+    final result = await callable.call({'uid': uid});
+    final data = Map<String, dynamic>.from(result.data as Map);
+    if (data['enviado'] != true) {
+      throw Exception('No se pudo enviar el enlace de acceso');
+    }
   }
 
   /// Eliminar usuario de Firebase Auth vía Cloud Function

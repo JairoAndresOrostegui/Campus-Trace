@@ -200,7 +200,12 @@ class AdminUserFormBody extends StatelessWidget {
         // Correo institucional
         TextFormField(
           controller: correoInstitucional,
-          decoration: const InputDecoration(labelText: 'Correo Institucional'),
+          decoration: InputDecoration(
+            labelText: 'Correo Institucional',
+            helperText: esNuevo
+                ? 'Se enviará un enlace para que el usuario defina su contraseña.'
+                : 'Si cambia, se sincronizará el acceso y se enviará un enlace nuevo.',
+          ),
           readOnly: soloLectura,
           validator: (value) {
             if (value == null || value.isEmpty) {

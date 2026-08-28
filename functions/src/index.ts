@@ -1,8 +1,8 @@
-/* functions/src/index.ts */
+import {randomBytes} from "node:crypto";
 import {setGlobalOptions} from "firebase-functions/v2";
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {initializeApp} from "firebase-admin/app";
-import {getAuth} from "firebase-admin/auth";
+import {getAuth, UserRecord} from "firebase-admin/auth";
 import {getMessaging} from "firebase-admin/messaging";
 import {getFirestore} from "firebase-admin/firestore";
 
@@ -15,228 +15,443 @@ interface NotifData {
   cuerpo?: string;
 }
 
-interface CrearUsuarioData {
-  email?: string;
-  password?: string;
-  nombres?: string;
-  apellidos?: string;
-  rol?: string;
-  documento?: string;
+interface UserPayload {
+  uid?: string;
+  user?: Record<string, unknown>;
 }
 
-interface EliminarUsuarioData {
+interface DeleteUserData {
   uid?: string;
 }
 
-interface BienvenidaData {
-  email?: string;
-  nombres?: string;
-  apellidos?: string;
-  documento?: string;
-  portalUrl?: string;
+interface AccessLinkData {
+  uid?: string;
+}
+
+interface CallerProfile {
+  role: string;
+  permissions: string[];
+  institution: string;
+  campus: string;
 }
 
 const validRoles = new Set(["Estudiante", "Docente", "Administrador"]);
+const portalUrl = "https://bitacorapedagogica.com/";
+const editableProfileFields = [
+  "firstName",
+  "lastName",
+  "institutionalEmail",
+  "semester",
+  "role",
+  "modality",
+  "career",
+  "campus",
+  "institution",
+  "phones",
+  "status",
+  "fcmToken",
+  "documentType",
+  "documentNumber",
+  "photoUrl",
+  "permissions",
+] as const;
 
 /**
- * Obtiene el rol activo del usuario autenticado que invoca una funcion.
- * @param {string} uid UID del usuario autenticado.
- * @return {Promise<string>} Rol del usuario.
+ * Reads and validates a required string field.
+ * @param {Record<string, unknown>} data Input data.
+ * @param {string} field Required field name.
+ * @return {string} Trimmed field value.
  */
-async function getCallerRole(uid: string): Promise<string> {
+function requiredString(
+  data: Record<string, unknown>,
+  field: string
+): string {
+  const value = data[field];
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new HttpsError("invalid-argument", `Campo invalido: ${field}.`);
+  }
+  return value.trim();
+}
+
+/**
+ * Returns only string values from an unknown list.
+ * @param {unknown} value Potential list.
+ * @return {string[]} Valid string values.
+ */
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+/**
+ * Normalizes profile fields accepted from callable clients.
+ * @param {Record<string, unknown>} data Raw profile.
+ * @param {boolean} requireInstitutionalDomain Whether @udi.edu.co is required.
+ * @return {Record<string, unknown>} Validated profile.
+ */
+function normalizeProfile(
+  data: Record<string, unknown>,
+  requireInstitutionalDomain: boolean
+) {
+  const profile: Record<string, unknown> = {};
+  for (const field of editableProfileFields) {
+    if (Object.prototype.hasOwnProperty.call(data, field)) {
+      profile[field] = data[field];
+    }
+  }
+
+  profile.firstName = requiredString(data, "firstName");
+  profile.lastName = requiredString(data, "lastName");
+  profile.institutionalEmail = requiredString(
+    data,
+    "institutionalEmail"
+  ).toLowerCase();
+  profile.role = requiredString(data, "role");
+  profile.status = requiredString(data, "status");
+  profile.permissions = stringList(data.permissions);
+  profile.phones = stringList(data.phones);
+
+  const email = profile.institutionalEmail as string;
+  const role = profile.role as string;
+  if (requireInstitutionalDomain && !email.endsWith("@udi.edu.co")) {
+    throw new HttpsError(
+      "invalid-argument",
+      "El correo debe pertenecer al dominio @udi.edu.co."
+    );
+  }
+  if (!validRoles.has(role)) {
+    throw new HttpsError("invalid-argument", "Rol invalido.");
+  }
+  return profile;
+}
+
+/**
+ * Loads the active caller profile used for authorization.
+ * @param {string} uid Authenticated UID.
+ * @return {Promise<CallerProfile>} Active caller profile.
+ */
+async function getCallerProfile(uid: string): Promise<CallerProfile> {
   const snap = await getFirestore().collection("users").doc(uid).get();
   const data = snap.data();
   if (!data || data.status !== "activo" || typeof data.role !== "string") {
     throw new HttpsError("permission-denied", "Usuario sin permisos.");
   }
-  return data.role;
+  return {
+    role: data.role,
+    permissions: stringList(data.permissions),
+    institution: typeof data.institution === "string" ? data.institution : "",
+    campus: typeof data.campus === "string" ? data.campus : "",
+  };
 }
 
 /**
- * Exige que el invocador tenga uno de los roles permitidos.
- * @param {string | undefined} uid UID autenticado de la solicitud callable.
- * @param {string[]} allowedRoles Roles autorizados.
- * @return {Promise<string>} Rol validado del invocador.
+ * Requires an authenticated caller with one of the allowed roles.
+ * @param {string | undefined} uid Authenticated UID.
+ * @param {string[]} allowedRoles Accepted roles.
+ * @return {Promise<CallerProfile>} Authorized caller.
  */
 async function requireRole(
   uid: string | undefined,
   allowedRoles: string[]
-): Promise<string> {
+): Promise<CallerProfile> {
   if (!uid) {
     throw new HttpsError("unauthenticated", "Debe iniciar sesion.");
   }
-  const callerRole = await getCallerRole(uid);
-  if (!allowedRoles.includes(callerRole)) {
+  const caller = await getCallerProfile(uid);
+  if (!allowedRoles.includes(caller.role)) {
     throw new HttpsError("permission-denied", "Rol no autorizado.");
   }
-  return callerRole;
+  return caller;
 }
 
 /**
- * Construye el HTML del correo de bienvenida (tema UDI).
- * @param {string} nombre Nombre completo del usuario.
- * @param {string} portal URL del portal para iniciar sesion.
- * @param {string} userEmail Correo del usuario.
- * @param {string} pass Contrasena inicial (documento).
- * @return {string} HTML listo para enviar.
+ * Requires permission to execute a user-management operation.
+ * @param {string | undefined} uid Authenticated UID.
+ * @param {string} permission Required permission.
+ * @return {Promise<CallerProfile>} Authorized caller.
  */
-function buildWelcomeHtml(
-  nombre: string,
-  portal: string,
-  userEmail: string,
-  pass: string
-): string {
+async function requireUserPermission(
+  uid: string | undefined,
+  permission: string
+): Promise<CallerProfile> {
+  const caller = await requireRole(uid, ["Administrador", "Docente"]);
+  if (
+    caller.role !== "Administrador" &&
+    !caller.permissions.includes(permission)
+  ) {
+    throw new HttpsError("permission-denied", "Permiso no autorizado.");
+  }
+  return caller;
+}
+
+/**
+ * Restricts teacher management to non-admin users without privilege changes.
+ * @param {CallerProfile} caller Authorized caller.
+ * @param {Record<string, unknown>} profile Requested profile.
+ * @param {Record<string, unknown>} existing Current profile, if any.
+ */
+function validateTeacherScope(
+  caller: CallerProfile,
+  profile: Record<string, unknown>,
+  existing?: Record<string, unknown>
+) {
+  if (caller.role !== "Docente") return;
+
+  const targetRole = existing?.role ?? profile.role;
+  if (targetRole === "Administrador" || profile.role === "Administrador") {
+    throw new HttpsError(
+      "permission-denied",
+      "Un docente no puede administrar usuarios Administrador."
+    );
+  }
+  if (existing) {
+    profile.role = existing.role;
+    profile.permissions = existing.permissions ?? [];
+    profile.institution = existing.institution;
+    profile.campus = existing.campus;
+  } else {
+    profile.permissions = stringList(profile.permissions).filter(
+      (permission) => permission === "bitacora.ver"
+    );
+  }
+}
+
+/**
+ * Escapes user-provided values before rendering an email.
+ * @param {string} value Raw value.
+ * @return {string} HTML-safe value.
+ */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Builds the password setup email.
+ * @param {string} name Recipient name.
+ * @param {string} email Recipient email.
+ * @param {string} link Firebase password action link.
+ * @return {string} Rendered HTML.
+ */
+function buildAccessHtml(name: string, email: string, link: string): string {
+  const safeName = escapeHtml(name);
+  const safeEmail = escapeHtml(email);
+  const safeLink = escapeHtml(link);
+  const safePortal = escapeHtml(portalUrl);
   return [
     "<!doctype html><html lang='es'><head><meta charset='utf-8'>",
     "<meta name='viewport' content='width=device-width,initial-scale=1'>",
     "<style>",
-    ":root{--pri:#1e3a8a}",
-    "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,",
-    "Helvetica,Arial,sans-serif;line-height:1.6;margin:0;",
-    "background:#fff;color:#222}",
+    "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;",
+    "line-height:1.6;margin:0;background:#fff;color:#222}",
     ".wrap{max-width:680px;margin:0 auto;padding:24px}",
-    "h1{color:var(--pri);margin:0 0 8px;font-size:22px}",
-    ".card{background:#fff;border:1px solid rgba(0,0,0,.08);",
-    "border-radius:12px;padding:18px;margin:12px 0;",
-    "box-shadow:0 2px 8px rgba(0,0,0,.03)}",
-    ".big{font-size:18px;font-weight:800;color:var(--pri)}",
-    ".muted{color:#555}",
-    ".btn{display:inline-block;background:var(--pri);color:#fff;",
+    ".card{border:1px solid #ddd;border-radius:12px;padding:18px}",
+    ".btn{display:inline-block;background:#1e3a8a;color:#fff;",
     "padding:10px 16px;border-radius:10px;text-decoration:none}",
-    "code{background:#f5f5f5;border-radius:8px;padding:2px 6px}",
-    "</style></head><body><main class='wrap'>",
-    "<h1>Bienvenido(a)</h1>",
-    "<div class='card'>",
-    "<p>Hola <span class='big'>", nombre, "</span>,</p>",
-    "<p class='muted'>Tu cuenta ha sido creada en el sistema.</p>",
-    "<p><a class='btn' href='", portal, "' target='_blank'>",
-    "Ingresar al sistema</a></p>",
-    "<p><strong>URL:</strong> ", portal, "<br/>",
-    "<strong>Usuario:</strong> <code>", userEmail, "</code><br/>",
-    "<strong>Contrasena:</strong> <code>", pass, "</code></p>",
-    "<p class='muted'>Por seguridad, cambia tu contrasena al ingresar.",
-    "</p>",
-    "</div>",
-    "</main></body></html>",
+    "</style></head><body><main class='wrap'><div class='card'>",
+    `<h1>Acceso a Campus-Trace</h1><p>Hola ${safeName},</p>`,
+    "<p>Usa el siguiente enlace personal para definir o restablecer tu ",
+    "contrasena. El numero de documento no se usa como contrasena.</p>",
+    `<p><a class='btn' href='${safeLink}'>Configurar contrasena</a></p>`,
+    `<p><strong>Usuario:</strong> ${safeEmail}</p>`,
+    `<p>Despues ingresa desde <a href='${safePortal}'>${safePortal}</a>.</p>`,
+    "<p>Si no solicitaste este acceso, puedes ignorar el mensaje.</p>",
+    "</div></main></body></html>",
   ].join("");
 }
 
 /**
- * Envia una notificacion FCM a multiples tokens.
- * Requiere rol Docente o Administrador.
+ * Generates and queues a password setup link for an existing user.
+ * @param {UserRecord} user Firebase Authentication user.
+ * @param {string} name Recipient name.
+ * @return {Promise<void>} Resolves after queuing the email.
  */
+async function enqueueAccessLink(
+  user: UserRecord,
+  name: string
+): Promise<void> {
+  if (!user.email) {
+    throw new HttpsError("failed-precondition", "El usuario no tiene correo.");
+  }
+  const link = await getAuth().generatePasswordResetLink(user.email);
+  await getFirestore().collection("mail").add({
+    to: user.email,
+    message: {
+      subject: "Configura tu acceso a Campus-Trace",
+      html: buildAccessHtml(name, user.email, link),
+    },
+  });
+}
+
 export const enviarNotificacion = onCall(async (request) => {
   await requireRole(request.auth?.uid, ["Docente", "Administrador"]);
-
   const data = (request.data ?? {}) as NotifData;
-  const {tokens, titulo, cuerpo} = data;
-
-  if (!Array.isArray(tokens) || tokens.length === 0) {
+  const tokens = data.tokens;
+  if (!Array.isArray(tokens) || tokens.length === 0 || tokens.length > 500) {
     throw new HttpsError(
       "invalid-argument",
-      "No se proporcionaron tokens validos."
+      "Debe proporcionar entre 1 y 500 tokens."
     );
   }
-
   try {
-    const resp = await getMessaging().sendEachForMulticast({
-      notification: {title: titulo, body: cuerpo},
-      tokens: tokens,
+    const response = await getMessaging().sendEachForMulticast({
+      notification: {title: data.titulo, body: data.cuerpo},
+      tokens,
     });
-    return {exitosos: resp.successCount, fallidos: resp.failureCount};
-  } catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "Error enviando notificacion.";
-    throw new HttpsError("internal", msg);
+    return {exitosos: response.successCount, fallidos: response.failureCount};
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Error de envio.";
+    throw new HttpsError("internal", message);
   }
 });
 
-/**
- * Crea un usuario en Firebase Auth.
- * Requiere rol Administrador.
- */
 export const crearUsuarioDesdeAdmin = onCall(async (request) => {
-  await requireRole(request.auth?.uid, ["Administrador"]);
-
-  const data = (request.data ?? {}) as CrearUsuarioData;
-  const {email, password, nombres, apellidos, rol, documento} = data;
-
-  if (!email || !password || !nombres || !apellidos || !rol || !documento) {
-    throw new HttpsError("invalid-argument", "Faltan datos obligatorios.");
+  const caller = await requireUserPermission(
+    request.auth?.uid,
+    "usuarios.crear"
+  );
+  const data = (request.data ?? {}) as UserPayload;
+  if (!data.user) {
+    throw new HttpsError("invalid-argument", "Faltan datos del usuario.");
   }
-  if (!validRoles.has(rol)) {
-    throw new HttpsError("invalid-argument", "Rol invalido.");
-  }
+  const profile = normalizeProfile(
+    data.user,
+    caller.role !== "Administrador"
+  );
+  validateTeacherScope(caller, profile);
 
+  const email = profile.institutionalEmail as string;
+  const displayName = `${profile.firstName} ${profile.lastName}`.trim();
+  let created: UserRecord | undefined;
   try {
-    const user = await getAuth().createUser({
-      email: email,
-      password: password,
-      displayName: `${nombres} ${apellidos}`.trim(),
-      disabled: false,
+    created = await getAuth().createUser({
+      email,
+      password: randomBytes(32).toString("base64url"),
+      displayName,
+      emailVerified: true,
+      disabled: profile.status !== "activo",
     });
-    return {exito: true, uid: user.uid};
-  } catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "No se pudo crear el usuario.";
-    throw new HttpsError("internal", msg);
+    await getFirestore().collection("users").doc(created.uid).set(profile);
+    const shouldSendLink = profile.status === "activo";
+    if (shouldSendLink) {
+      await enqueueAccessLink(created, displayName);
+    }
+    return {
+      exito: true,
+      uid: created.uid,
+      enlaceEnviado: shouldSendLink,
+    };
+  } catch (error: unknown) {
+    if (created) {
+      await getAuth().deleteUser(created.uid).catch(() => undefined);
+      await getFirestore().collection("users").doc(created.uid).delete()
+        .catch(() => undefined);
+    }
+    const message = error instanceof Error ? error.message : "Error de alta.";
+    throw new HttpsError("internal", message);
   }
 });
 
-/**
- * Elimina un usuario de Firebase Auth por UID.
- * Requiere rol Administrador.
- */
+export const actualizarUsuarioDesdeAdmin = onCall(async (request) => {
+  const caller = await requireUserPermission(
+    request.auth?.uid,
+    "usuarios.editar"
+  );
+  const data = (request.data ?? {}) as UserPayload;
+  if (!data.uid || !data.user) {
+    throw new HttpsError("invalid-argument", "Faltan UID o datos del usuario.");
+  }
+
+  const ref = getFirestore().collection("users").doc(data.uid);
+  const snapshot = await ref.get();
+  if (!snapshot.exists) {
+    throw new HttpsError("not-found", "Usuario no encontrado.");
+  }
+  const previousProfile = snapshot.data() as Record<string, unknown>;
+  const profile = normalizeProfile(
+    data.user,
+    caller.role !== "Administrador"
+  );
+  validateTeacherScope(caller, profile, previousProfile);
+
+  const auth = getAuth();
+  const previousAuth = await auth.getUser(data.uid);
+  const email = profile.institutionalEmail as string;
+  const displayName = `${profile.firstName} ${profile.lastName}`.trim();
+  const emailChanged = previousAuth.email?.toLowerCase() !== email;
+
+  try {
+    const updatedAuth = await auth.updateUser(data.uid, {
+      email,
+      displayName,
+      emailVerified: emailChanged ? true : previousAuth.emailVerified,
+      disabled: profile.status !== "activo",
+    });
+    await ref.set(profile, {merge: true});
+    if (emailChanged && profile.status === "activo") {
+      await enqueueAccessLink(updatedAuth, displayName);
+    }
+    return {
+      exito: true,
+      enlaceEnviado: emailChanged && profile.status === "activo",
+    };
+  } catch (error: unknown) {
+    await auth.updateUser(data.uid, {
+      email: previousAuth.email,
+      displayName: previousAuth.displayName,
+      emailVerified: previousAuth.emailVerified,
+      disabled: previousAuth.disabled,
+    }).catch(() => undefined);
+    await ref.set(previousProfile).catch(() => undefined);
+    const message = error instanceof Error ?
+      error.message : "Error de edicion.";
+    throw new HttpsError("internal", message);
+  }
+});
+
+export const enviarEnlaceAcceso = onCall(async (request) => {
+  const caller = await requireUserPermission(
+    request.auth?.uid,
+    "usuarios.editar"
+  );
+  const data = (request.data ?? {}) as AccessLinkData;
+  if (!data.uid) {
+    throw new HttpsError("invalid-argument", "Se requiere el UID.");
+  }
+  const snapshot = await getFirestore().collection("users").doc(data.uid).get();
+  if (!snapshot.exists) {
+    throw new HttpsError("not-found", "Usuario no encontrado.");
+  }
+  const profile = snapshot.data() as Record<string, unknown>;
+  validateTeacherScope(caller, {...profile}, profile);
+  if (profile.status !== "activo") {
+    throw new HttpsError(
+      "failed-precondition",
+      "No se puede enviar acceso a un usuario inactivo."
+    );
+  }
+  const user = await getAuth().getUser(data.uid);
+  const name = `${profile.firstName ?? ""} ${profile.lastName ?? ""}`.trim();
+  await enqueueAccessLink(user, name);
+  return {enviado: true};
+});
+
 export const eliminarUsuarioAuth = onCall(async (request) => {
   await requireRole(request.auth?.uid, ["Administrador"]);
-
-  const data = (request.data ?? {}) as EliminarUsuarioData;
-  const {uid} = data;
-
-  if (!uid) {
-    throw new HttpsError(
-      "invalid-argument",
-      "Se requiere el UID del usuario."
-    );
+  const data = (request.data ?? {}) as DeleteUserData;
+  if (!data.uid) {
+    throw new HttpsError("invalid-argument", "Se requiere el UID.");
   }
-
   try {
-    await getAuth().deleteUser(uid);
+    await getAuth().deleteUser(data.uid);
     return {success: true};
-  } catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "No se pudo eliminar el usuario.";
-    throw new HttpsError("internal", msg);
-  }
-});
-
-/**
- * Encola un correo de bienvenida en la coleccion 'mail'.
- * Requiere rol Administrador.
- */
-export const enviarCorreoBienvenida = onCall(async (request) => {
-  await requireRole(request.auth?.uid, ["Administrador"]);
-
-  const data = (request.data ?? {}) as BienvenidaData;
-  const {email, nombres, apellidos, documento, portalUrl} = data;
-
-  if (!email || !nombres || !apellidos || !documento || !portalUrl) {
-    throw new HttpsError("invalid-argument", "Datos insuficientes.");
-  }
-
-  const nombre = `${nombres} ${apellidos}`.trim();
-  const html = buildWelcomeHtml(nombre, portalUrl, email, documento);
-
-  try {
-    const db = getFirestore();
-    await db.collection("mail").add({
-      to: email,
-      message: {subject: "Bienvenido(a) al sistema", html: html},
-    });
-    return {queued: true};
-  } catch (err: unknown) {
-    const msg =
-      err instanceof Error ? err.message : "No se pudo encolar el correo.";
-    throw new HttpsError("internal", msg);
+  } catch (error: unknown) {
+    const message = error instanceof Error ?
+      error.message : "Error al eliminar.";
+    throw new HttpsError("internal", message);
   }
 });

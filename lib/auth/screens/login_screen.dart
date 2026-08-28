@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:cloud_functions/cloud_functions.dart';
 
 import '../../../app.dart';
 import '../../../providers/user_provider.dart';
@@ -460,31 +458,6 @@ class _LoginScreenState extends State<LoginScreen> {
 
         await FirebaseAuth.instance.signOut();
         return;
-      }
-
-      try {
-        final docRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(fbUser.uid);
-        final snap = await docRef.get();
-        final already = (snap.data()?['welcomeSent'] ?? false) == true;
-
-        if (!already) {
-          final enviarBienvenida = FirebaseFunctions.instance.httpsCallable(
-            'enviarCorreoBienvenida',
-          );
-          await enviarBienvenida.call({
-            'email': user!.institutionalEmail,
-            'nombres': user.firstName,
-            'apellidos': user.lastName,
-            'documento': user.documentNumber ?? '',
-            'portalUrl': 'https://bitacorapedagogica.com/',
-          });
-
-          await docRef.set({'welcomeSent': true}, SetOptions(merge: true));
-        }
-      } catch (_) {
-        // Si falla, no bloquea el login
       }
 
       userProvider.setUser(user!);
