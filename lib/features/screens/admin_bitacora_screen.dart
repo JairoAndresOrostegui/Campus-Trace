@@ -7,6 +7,7 @@ import '../../user/services/user_service.dart';
 import '../models/form_template.dart';
 import '../services/form_template_service.dart';
 import 'form_builder_screen.dart';
+import 'form_teacher_dashboard_screen.dart';
 
 class AdminBitacoraScreen extends StatefulWidget {
   const AdminBitacoraScreen({super.key});
@@ -62,6 +63,14 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
           canDelete: true,
           canDuplicate: true,
         ),
+      ),
+    );
+  }
+
+  void _openTeacherPanel(FormTemplate template) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FormTeacherDashboardScreen(templateId: template.id),
       ),
     );
   }
@@ -291,6 +300,7 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
             final template = templates[index];
             return _TemplateAdminTile(
               template: template,
+              onOpenTeacherPanel: () => _openTeacherPanel(template),
               onEdit: () => _openBuilder(templateId: template.id),
               onDuplicate: () => _duplicate(template),
               onDelete: () => _delete(template),
@@ -305,12 +315,14 @@ class _AdminBitacoraScreenState extends State<AdminBitacoraScreen> {
 class _TemplateAdminTile extends StatelessWidget {
   const _TemplateAdminTile({
     required this.template,
+    required this.onOpenTeacherPanel,
     required this.onEdit,
     required this.onDuplicate,
     required this.onDelete,
   });
 
   final FormTemplate template;
+  final VoidCallback onOpenTeacherPanel;
   final VoidCallback onEdit;
   final VoidCallback onDuplicate;
   final VoidCallback onDelete;
@@ -326,16 +338,24 @@ class _TemplateAdminTile extends StatelessWidget {
         color: Colors.white,
       ),
       child: ListTile(
+        onTap: onOpenTeacherPanel,
         title: Text(
           template.header.title.isEmpty ? 'Sin titulo' : template.header.title,
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         subtitle: Text(
-          '#${template.code}  -  ${template.groupName.isEmpty ? "Sin grupo" : template.groupName}',
+          '#${template.code}  -  ${template.groupName.isEmpty ? "Sin grupo" : template.groupName}\n'
+          'Estudiantes y calificacion',
         ),
+        isThreeLine: true,
         trailing: Wrap(
           spacing: 4,
           children: [
+            IconButton(
+              tooltip: 'Ver estudiantes y calificar',
+              icon: const Icon(Icons.groups_outlined),
+              onPressed: onOpenTeacherPanel,
+            ),
             IconButton(
               tooltip: 'Editar',
               icon: const Icon(Icons.edit),
