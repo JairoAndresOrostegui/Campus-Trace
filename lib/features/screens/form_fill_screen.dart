@@ -43,6 +43,7 @@ class _FormFillScreenState extends State<FormFillScreen> {
   final Map<String, TextEditingController> _textCtrls = {};
   final Map<String, dynamic> _values = {};
   bool _sending = false;
+  bool _unlockingSubmission = false;
 
   // Borrador
   bool _draftLoading = false;
@@ -272,6 +273,62 @@ class _FormFillScreenState extends State<FormFillScreen> {
   }
 
   // ========= Envío final (estudiante) =========
+  /// Reabre una entrega enviada para que el estudiante pueda corregirla y
+  /// enviarla nuevamente. Conserva los comentarios y la retroalimentación.
+  Future<void> _returnForCorrection() async {
+    if (!widget.reviewMode ||
+        !_locked ||
+        widget.templateId == null ||
+        widget.reviewStudentId == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Devolver para corrección'),
+        content: const Text(
+          'La entrega se reabrirá para que el estudiante pueda corregirla y enviarla nuevamente. '
+          'Los comentarios y la retroalimentación se conservarán.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Devolver'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _unlockingSubmission = true);
+    try {
+      await _entrySvc.unlockSubmission(
+        studentId: widget.reviewStudentId!,
+        templateId: widget.templateId!,
+      );
+      if (!mounted) return;
+      setState(() {
+        _locked = false;
+        _stage = 'draft';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Entrega devuelta para corrección')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo devolver la entrega: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _unlockingSubmission = false);
+    }
+  }
+
   Future<void> _submit({required FormTemplate template}) async {
     if (_locked) return;
 
@@ -1250,6 +1307,16 @@ class _FormFillScreenState extends State<FormFillScreen> {
                               child: Wrap(
                                 spacing: 8,
                                 children: [
+                                  if (_locked)
+                                    OutlinedButton.icon(
+                                      icon: const Icon(Icons.lock_open),
+                                      label: const Text(
+                                        'Devolver para corrección',
+                                      ),
+                                      onPressed: _unlockingSubmission
+                                          ? null
+                                          : _returnForCorrection,
+                                    ),
                                   OutlinedButton.icon(
                                     icon: const Icon(Icons.picture_as_pdf),
                                     label: const Text('Exportar PDF'),

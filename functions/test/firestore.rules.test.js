@@ -95,6 +95,21 @@ test("solo el docente asignado puede revisar la entrega", async () => {
   await assertFails(otherRef.update({grade: 5, stage: "graded"}));
 });
 
+test("el docente asignado puede devolver una entrega para correccion", async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await context.firestore().collection("form_entries_drafts")
+      .doc("student1__owned").update({
+        locked: true,
+        stage: "submitted",
+      });
+  });
+
+  const ref = dbFor("teacher1")
+    .collection("form_entries_drafts")
+    .doc("student1__owned");
+  await assertSucceeds(ref.update({locked: false, stage: "draft"}));
+});
+
 test("un docente solo modifica sus plantillas", async () => {
   const db = dbFor("teacher1");
   await assertSucceeds(
